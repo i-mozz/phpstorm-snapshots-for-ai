@@ -1,0 +1,7 @@
+{
+  "default_prompt": "Enter your prompt here",
+  "default_include_entire_project_structure": true,
+  "default_include_all_files": false,
+  "max_file_size_kb": 1024,
+  "max_total_size_mb": 10
+}

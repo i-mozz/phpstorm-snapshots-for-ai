@@ -2,7 +2,7 @@
     <id>com.gbti.snapshotsforai</id>
     <name>Snapshots for AI</name>
     <version>8000.4</version>
-    <idea-version since-build="193.0"/>
+    <idea-version since-build="242"/>
     <product-descriptor code="PSNAPSHOTSFORAI" release-date="20241110" release-version="80004"/>
     <vendor email="hudson.atwell@gmail.com" url="http://gbti.network">GBTI Network</vendor>
 
@@ -63,6 +63,12 @@
         <action id="com.gbti.snapshotsforai.actions.CreateSnapshotActionWithText"
                 class="com.gbti.snapshotsforai.actions.CreateSnapshotAction"
                 text="Create Snapshot" icon="/icons/camera-16.svg">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="com.gbti.snapshotsforai.actions.ViewSnapshotHistory"
+                class="com.gbti.snapshotsforai.actions.ViewSnapshotHistoryAction"
+                text="View Snapshot History"
+                description="View and manage previous snapshots">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="com.gbti.snapshotsforai.actions.MainToolbarRight"

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(./gradlew test:*)",
+      "Bash(gradle test:*)",
+      "WebSearch",
+      "Bash(gradle build:*)",
+      "Bash(./gradlew build:*)",
+      "WebFetch(domain:plugins.jetbrains.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gradle clean build:*)",
+      "Bash(gradle --version:*)",
+      "Bash(gradle wrapper:*)",
+      "Bash(brew list:*)",
+      "Bash(brew info:*)",
+      "Bash(/opt/homebrew/bin/gradle clean build:*)",
+      "Bash(/opt/homebrew/bin/gradle:*)",
+      "Bash(/usr/libexec/java_home:*)"
+    ]
+  }
+}

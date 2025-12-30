@@ -83,14 +83,26 @@ public class SnapshotDialog extends DialogWrapper {
     private void initFileCheckboxes() {
         FileEditorManager fileEditorManager = FileEditorManager.getInstance(project);
         VirtualFile[] openFiles = fileEditorManager.getOpenFiles();
+        String basePath = project.getBasePath();
 
         fileCheckBoxes.clear();
         filesPanel.removeAll();
 
         for (VirtualFile file : openFiles) {
-            if (!file.getPath().contains("/.snapshots/")) {
-                JCheckBox checkBox = new JCheckBox(file.getPath());
-                checkBox.setSelected(true); // Set checkbox as selected by default
+            String absolutePath = file.getPath();
+            if (!absolutePath.contains("/.snapshots/")) {
+                // Create relative path for display
+                String displayPath = absolutePath;
+                if (basePath != null && absolutePath.startsWith(basePath)) {
+                    displayPath = absolutePath.substring(basePath.length());
+                    if (displayPath.startsWith("/")) {
+                        displayPath = displayPath.substring(1);
+                    }
+                }
+
+                JCheckBox checkBox = new JCheckBox(displayPath);
+                checkBox.putClientProperty("absolutePath", absolutePath);
+                checkBox.setSelected(true);
                 fileCheckBoxes.add(checkBox);
                 filesPanel.add(checkBox);
             }
@@ -177,7 +189,9 @@ public class SnapshotDialog extends DialogWrapper {
         List<String> selectedFiles = new ArrayList<>();
         for (JCheckBox checkBox : fileCheckBoxes) {
             if (checkBox.isSelected()) {
-                selectedFiles.add(checkBox.getText());
+                // Retrieve absolute path from client property
+                String absolutePath = (String) checkBox.getClientProperty("absolutePath");
+                selectedFiles.add(absolutePath != null ? absolutePath : checkBox.getText());
             }
         }
         return selectedFiles;

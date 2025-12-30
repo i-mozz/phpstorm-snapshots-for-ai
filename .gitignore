@@ -1,5 +1,6 @@
 .gradle/
 .idea/
+.intellijPlatform/
 .snapshots/
 build/
 gradlew

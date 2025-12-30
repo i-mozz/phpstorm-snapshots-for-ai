@@ -8,6 +8,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -44,72 +46,13 @@ public final class SnapshotService {
         if (!Files.exists(configFilePath)) {
             LOG.info("Creating config file at: " + configFilePath);
             JSONObject config = new JSONObject();
-            config.put("excluded_patterns", new JSONArray()
-                .put(".git")
-                .put(".gitignore")
-                .put("gradle")
-                .put("gradlew")
-                .put("gradlew.*")
-                .put("node_modules")
-                .put("vendor")
-                .put(".snapshots")
-                .put(".idea")
-                .put(".vscode")
-                .put("*.log")
-                .put("*.tmp")
-                .put("target")
-                .put("dist")
-                .put("build")
-                .put(".DS_Store")
-                .put("*.bak")
-                .put("*.swp")
-                .put("*.swo")
-                .put("*.lock")
-                .put("*.iml")
-                .put("coverage")
-                .put("*.min.js")
-                .put("*.min.css")
-                .put("netlify.toml")
-                .put("package-lock.json")
-                .put("__pycache__")
-                .put("LICENSE")
-            );
 
-            config.put("included_patterns", new JSONArray()
-                .put("build.gradle")
-                .put("settings.gradle")
-                .put("gradle.properties")
-                .put("pom.xml")
-                .put("Makefile")
-                .put("CMakeLists.txt")
-                .put("package.json")
-                .put("yarn.lock")
-                .put("requirements.txt")
-                .put("Pipfile")
-                .put("Pipfile.lock")
-                .put("Gemfile")
-                .put("Gemfile.lock")
-                .put("composer.json")
-                .put("composer.lock")
-                .put(".editorconfig")
-                .put(".eslintrc.json")
-                .put(".eslintrc.js")
-                .put(".prettierrc")
-                .put(".babelrc")
-                .put(".env")
-                .put(".dockerignore")
-                .put(".gitattributes")
-                .put(".stylelintrc")
-                .put(".npmrc")
-            );
+            // Load patterns from resource files
+            config.put("excluded_patterns", loadPatternsFromResource("/defaults/excluded_patterns.json"));
+            config.put("included_patterns", loadPatternsFromResource("/defaults/included_patterns.json"));
+            config.put("default", loadDefaultConfigFromResource());
 
-            JSONObject defaultConfig = new JSONObject();
-            defaultConfig.put("default_prompt", "Enter your prompt here");
-            defaultConfig.put("default_include_entire_project_structure", true);
-            defaultConfig.put("default_include_all_files", false);
-
-            config.put("default", defaultConfig);
-            Files.write(configFilePath, config.toString(4).getBytes());
+            Files.write(configFilePath, config.toString(4).getBytes(StandardCharsets.UTF_8));
         } else {
             LOG.info("Config file already exists at: " + configFilePath);
         }
@@ -179,6 +122,8 @@ public final class SnapshotService {
                 "- `default_prompt`: The default prompt text that will be displayed in the snapshot dialog.\n" +
                 "- `default_include_entire_project_structure`: Whether to include the entire project structure by default when creating a snapshot.\n" +
                 "- `default_include_all_files`: Whether to include all project files by default when creating a snapshot.\n" +
+                "- `max_file_size_kb`: Maximum size of a single file in KB (default: 1024 KB = 1 MB). Files exceeding this limit will be skipped.\n" +
+                "- `max_total_size_mb`: Maximum total size of all files in MB (default: 10 MB). Once this limit is reached, remaining files will be skipped.\n" +
                 "\n" +
                 "## Usage\n\n" +
                 "To create a snapshot, follow these steps:\n\n" +
@@ -196,8 +141,44 @@ public final class SnapshotService {
         Files.write(readmeFilePath, readmeContent.getBytes());
 
         VirtualFileManager.getInstance().asyncRefresh(() -> {
-            System.out.println("Virtual file system refreshed");
             LOG.info("Virtual file system refreshed");
         });
+    }
+
+    private JSONArray loadPatternsFromResource(String resourcePath) {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                LOG.warn("Resource not found: " + resourcePath + ", using empty array");
+                return new JSONArray();
+            }
+            String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            JSONObject json = new JSONObject(content);
+            return json.getJSONArray("patterns");
+        } catch (IOException e) {
+            LOG.error("Error loading patterns from " + resourcePath, e);
+            return new JSONArray();
+        }
+    }
+
+    private JSONObject loadDefaultConfigFromResource() {
+        try (InputStream is = getClass().getResourceAsStream("/defaults/default_config.json")) {
+            if (is == null) {
+                LOG.warn("Default config resource not found, using hardcoded defaults");
+                JSONObject defaults = new JSONObject();
+                defaults.put("default_prompt", "Enter your prompt here");
+                defaults.put("default_include_entire_project_structure", true);
+                defaults.put("default_include_all_files", false);
+                return defaults;
+            }
+            String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            return new JSONObject(content);
+        } catch (IOException e) {
+            LOG.error("Error loading default config", e);
+            JSONObject defaults = new JSONObject();
+            defaults.put("default_prompt", "Enter your prompt here");
+            defaults.put("default_include_entire_project_structure", true);
+            defaults.put("default_include_all_files", false);
+            return defaults;
+        }
     }
 }

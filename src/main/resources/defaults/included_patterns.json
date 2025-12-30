@@ -1,0 +1,30 @@
+{
+  "description": "Default patterns to always include in snapshots (overrides exclusions)",
+  "patterns": [
+    "build.gradle",
+    "settings.gradle",
+    "gradle.properties",
+    "pom.xml",
+    "Makefile",
+    "CMakeLists.txt",
+    "package.json",
+    "yarn.lock",
+    "requirements.txt",
+    "Pipfile",
+    "Pipfile.lock",
+    "Gemfile",
+    "Gemfile.lock",
+    "composer.json",
+    "composer.lock",
+    ".editorconfig",
+    ".eslintrc.json",
+    ".eslintrc.js",
+    ".prettierrc",
+    ".babelrc",
+    ".env",
+    ".dockerignore",
+    ".gitattributes",
+    ".stylelintrc",
+    ".npmrc"
+  ]
+}

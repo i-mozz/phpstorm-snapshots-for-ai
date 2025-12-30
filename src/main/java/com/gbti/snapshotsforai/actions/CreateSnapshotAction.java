@@ -1,13 +1,19 @@
 package com.gbti.snapshotsforai.actions;
 
 import com.gbti.snapshotsforai.SnapshotDialog;
+import com.gbti.snapshotsforai.util.ConfigValidator;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -50,11 +56,32 @@ public class CreateSnapshotAction extends AnAction {
             return;
         }
 
+        // Validate configuration
+        ConfigValidator validator = new ConfigValidator();
+        ConfigValidator.ValidationResult validationResult = validator.validate(configContent);
+
+        if (!validationResult.isValid()) {
+            Messages.showErrorDialog(
+                "Invalid configuration:\n" + validationResult.getErrorMessage(),
+                "Snapshots for AI"
+            );
+            return;
+        }
+
+        if (validationResult.hasWarnings()) {
+            Messages.showWarningDialog(
+                "Configuration warnings:\n" + validationResult.getWarningMessage(),
+                "Snapshots for AI"
+            );
+        }
+
         JSONObject config = new JSONObject(configContent);
         JSONObject defaultConfig = config.optJSONObject("default");
         String defaultPrompt = defaultConfig.optString("default_prompt", "");
         boolean defaultIncludeEntireProjectStructure = defaultConfig.optBoolean("default_include_entire_project_structure", false);
         boolean defaultIncludeAllFiles = defaultConfig.optBoolean("default_include_all_files", false);
+        long maxFileSizeKb = defaultConfig.optLong("max_file_size_kb", 1024);
+        long maxTotalSizeMb = defaultConfig.optLong("max_total_size_mb", 10);
         JSONArray excludedPatterns = config.optJSONArray("excluded_patterns");
         JSONArray includedPatterns = config.optJSONArray("included_patterns");
 
@@ -66,88 +93,145 @@ public class CreateSnapshotAction extends AnAction {
         String prompt = dialog.getPrompt();
         boolean includeEntireProjectStructure = dialog.isIncludeEntireProjectStructure();
         boolean includeAllFiles = dialog.isIncludeAllProjectFiles();
-        List<String> selectedFiles = dialog.getSelectedFiles();
+        List<String> dialogSelectedFiles = dialog.getSelectedFiles();
 
-        // If "Include all project files" is checked, get all project files not excluded by patterns
-        if (includeAllFiles) {
-            selectedFiles = getAllProjectFiles(basePath, excludedPatterns, includedPatterns);
-        }
+        // Capture final variables for use in background task
+        final String finalBasePath = basePath;
+        final JSONArray finalExcludedPatterns = excludedPatterns;
+        final JSONArray finalIncludedPatterns = includedPatterns;
+        final long finalMaxFileSizeBytes = maxFileSizeKb * 1024;
+        final long finalMaxTotalSizeBytes = maxTotalSizeMb * 1024 * 1024;
 
-        // Filter out image files except SVGs
-        selectedFiles = filterOutImageFiles(selectedFiles);
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Creating Snapshot", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                indicator.setIndeterminate(false);
+                indicator.setText("Preparing snapshot...");
+                indicator.setFraction(0.0);
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH_mm_ss");
-        String timestamp = LocalDateTime.now().format(formatter);
-        String fileName = "snapshot-" + timestamp + ".md";
+                List<String> selectedFiles = dialogSelectedFiles;
 
-        StringBuilder markdown = new StringBuilder();
-        markdown.append(prompt).append("\n\n");
+                // If "Include all project files" is checked, get all project files
+                if (includeAllFiles) {
+                    indicator.setText("Collecting project files...");
+                    selectedFiles = getAllProjectFiles(finalBasePath, finalExcludedPatterns, finalIncludedPatterns);
+                }
 
-        // Add project structure if "Include entire project structure" is checked
-        if (includeEntireProjectStructure) {
-            markdown.append("# Project Structure\n\n");
-            try {
-                List<String> projectFiles = getAllProjectFiles(basePath, excludedPatterns, includedPatterns);
-                markdown.append(formatProjectStructure(basePath, projectFiles));
-            } catch (Exception ex) {
-                markdown.append("Exception occurred while formatting project structure: ").append(ex.getMessage()).append("\n");
-                for (StackTraceElement element : ex.getStackTrace()) {
-                    markdown.append(element.toString()).append("\n");
+                // Filter out image files
+                selectedFiles = filterOutImageFiles(selectedFiles);
+
+                // Filter by file size limits
+                indicator.setText("Filtering by size limits...");
+                List<String> skippedFiles = new ArrayList<>();
+                selectedFiles = filterBySize(selectedFiles, finalMaxFileSizeBytes, finalMaxTotalSizeBytes, skippedFiles);
+
+                if (indicator.isCanceled()) return;
+
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH_mm_ss");
+                String timestamp = LocalDateTime.now().format(formatter);
+                String fileName = "snapshot-" + timestamp + ".md";
+
+                StringBuilder markdown = new StringBuilder();
+                markdown.append(prompt).append("\n\n");
+
+                // Add project structure
+                if (includeEntireProjectStructure) {
+                    indicator.setText("Building project structure...");
+                    indicator.setFraction(0.1);
+                    markdown.append("# Project Structure\n\n");
+                    try {
+                        List<String> projectFiles = getAllProjectFiles(finalBasePath, finalExcludedPatterns, finalIncludedPatterns);
+                        markdown.append(formatProjectStructure(finalBasePath, projectFiles));
+                    } catch (Exception ex) {
+                        markdown.append("Error building project structure: ").append(ex.getMessage()).append("\n");
+                    }
+                    markdown.append("\n\n");
+                }
+
+                if (indicator.isCanceled()) return;
+
+                // Add file list
+                markdown.append("# Project Files\n\n");
+                for (String filePath : selectedFiles) {
+                    markdown.append("- ").append(filePath).append("\n");
+                }
+                markdown.append("\n");
+
+                // Process files with progress
+                int totalFiles = selectedFiles.size();
+                indicator.setText("Processing files...");
+
+                for (int i = 0; i < totalFiles; i++) {
+                    if (indicator.isCanceled()) return;
+
+                    String filePath = selectedFiles.get(i);
+                    indicator.setText2("Reading: " + Paths.get(filePath).getFileName());
+                    indicator.setFraction(0.2 + (0.7 * i / Math.max(totalFiles, 1)));
+
+                    markdown.append("## ").append(filePath).append("\n```\n");
+                    try {
+                        List<String> fileLines = Files.readAllLines(Paths.get(filePath), StandardCharsets.UTF_8);
+                        for (String line : fileLines) {
+                            markdown.append(line).append("\n");
+                        }
+                    } catch (IOException ex) {
+                        markdown.append("Error reading file: ").append(ex.getMessage()).append("\n");
+                    }
+                    markdown.append("```\n\n");
+                }
+
+                if (indicator.isCanceled()) return;
+
+                // Write snapshot file
+                indicator.setText("Writing snapshot file...");
+                indicator.setFraction(0.95);
+
+                try {
+                    Path snapshotsDir = Paths.get(finalBasePath, ".snapshots");
+                    if (!Files.exists(snapshotsDir)) {
+                        Files.createDirectories(snapshotsDir);
+                    }
+
+                    Path snapshotFile = snapshotsDir.resolve(fileName);
+                    Files.write(snapshotFile, markdown.toString().getBytes(StandardCharsets.UTF_8));
+
+                    indicator.setFraction(1.0);
+
+                    // Open file on EDT
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        VirtualFile snapshotsVirtualDir = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(snapshotsDir);
+                        if (snapshotsVirtualDir != null) {
+                            snapshotsVirtualDir.refresh(false, true);
+                        }
+
+                        VirtualFile virtualFile = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(snapshotFile);
+                        if (virtualFile != null) {
+                            virtualFile.refresh(false, false);
+                            FileEditorManager.getInstance(project).openFile(virtualFile, true);
+                        }
+
+                        if (!skippedFiles.isEmpty()) {
+                            StringBuilder message = new StringBuilder("Snapshot created successfully!\n\n");
+                            message.append("The following files were skipped due to size limits:\n");
+                            int displayCount = Math.min(skippedFiles.size(), 10);
+                            for (int i = 0; i < displayCount; i++) {
+                                message.append("• ").append(skippedFiles.get(i)).append("\n");
+                            }
+                            if (skippedFiles.size() > 10) {
+                                message.append("... and ").append(skippedFiles.size() - 10).append(" more files");
+                            }
+                            Messages.showWarningDialog(message.toString(), "Snapshots for AI");
+                        } else {
+                            Messages.showInfoMessage("Snapshot created successfully!", "Snapshots for AI");
+                        }
+                    });
+                } catch (IOException ex) {
+                    ApplicationManager.getApplication().invokeLater(() ->
+                        Messages.showErrorDialog("Error creating snapshot: " + ex.getMessage(), "Snapshots for AI")
+                    );
                 }
             }
-            markdown.append("\n\n");
-        }
-
-        // Add selected or all files in "# Project Files"
-        markdown.append("# Project Files\n\n");
-        for (String filePath : selectedFiles) {
-            markdown.append("- ").append(filePath).append("\n");
-        }
-
-        markdown.append("\n");
-
-        for (String filePath : selectedFiles) {
-            markdown.append("## ").append(filePath).append("\n```\n");
-            try {
-                List<String> fileLines = Files.readAllLines(Paths.get(filePath), StandardCharsets.UTF_8);
-                for (String line : fileLines) {
-                    markdown.append(line).append("\n");
-                }
-            } catch (IOException ex) {
-                markdown.append("Error reading file: ").append(filePath).append(" - ").append(ex.getMessage()).append("\n");
-                for (StackTraceElement element : ex.getStackTrace()) {
-                    markdown.append(element.toString()).append("\n");
-                }
-            }
-            markdown.append("```\n\n");
-        }
-
-        try {
-            Path snapshotsDir = Paths.get(basePath, ".snapshots");
-            if (!Files.exists(snapshotsDir)) {
-                Files.createDirectories(snapshotsDir);
-            }
-
-            Path snapshotFile = snapshotsDir.resolve(fileName);
-            Files.write(snapshotFile, markdown.toString().getBytes(StandardCharsets.UTF_8));
-
-            // Refresh the snapshots directory to ensure the new file is visible
-            VirtualFile snapshotsVirtualDir = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(snapshotsDir);
-            if (snapshotsVirtualDir != null) {
-                snapshotsVirtualDir.refresh(false, true);
-            }
-
-            // Refresh and open the snapshot file in the editor
-            VirtualFile virtualFile = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(snapshotFile);
-            if (virtualFile != null) {
-                virtualFile.refresh(false, false);
-                FileEditorManager.getInstance(project).openFile(virtualFile, true);
-            }
-
-            Messages.showInfoMessage("Snapshot created successfully!", "Snapshots for AI");
-        } catch (IOException ex) {
-            Messages.showErrorDialog("Error creating snapshot: " + ex.getMessage(), "Snapshots for AI");
-        }
+        });
     }
 
     private List<String> getAllProjectFiles(String basePath, JSONArray excludedPatterns, JSONArray includedPatterns) {
@@ -227,11 +311,55 @@ public class CreateSnapshotAction extends AnAction {
     private List<String> filterOutImageFiles(List<String> filePaths) {
         List<String> filteredFiles = new ArrayList<>();
         for (String filePath : filePaths) {
-            if (!filePath.matches(".*\\.(jpg|jpeg|png|gif|bmp|tiff)$") || filePath.endsWith(".svg")) {
+            // Include file if it's NOT a binary image, OR if it IS an SVG (SVGs are text-based)
+            if (!isBinaryImageFile(filePath) || isSvgFile(filePath)) {
                 filteredFiles.add(filePath);
             }
         }
         return filteredFiles;
+    }
+
+    private boolean isBinaryImageFile(String filePath) {
+        return filePath.toLowerCase().matches(".*\\.(jpg|jpeg|png|gif|bmp|tiff|webp|ico)$");
+    }
+
+    private boolean isSvgFile(String filePath) {
+        return filePath.toLowerCase().endsWith(".svg");
+    }
+
+    private List<String> filterBySize(List<String> filePaths, long maxFileSizeBytes, long maxTotalSizeBytes, List<String> skippedFiles) {
+        List<String> filtered = new ArrayList<>();
+        long totalSize = 0;
+
+        for (String filePath : filePaths) {
+            try {
+                long fileSize = Files.size(Paths.get(filePath));
+
+                if (fileSize > maxFileSizeBytes) {
+                    skippedFiles.add(filePath + " (exceeds max file size: " + formatSize(fileSize) + ")");
+                    continue;
+                }
+
+                if (totalSize + fileSize > maxTotalSizeBytes) {
+                    skippedFiles.add(filePath + " (would exceed total size limit)");
+                    continue;
+                }
+
+                filtered.add(filePath);
+                totalSize += fileSize;
+            } catch (IOException e) {
+                // Skip files that can't be read
+                skippedFiles.add(filePath + " (could not read file size)");
+            }
+        }
+
+        return filtered;
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     private String formatProjectStructure(String basePath, List<String> filePaths) {

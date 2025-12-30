@@ -1,0 +1,33 @@
+{
+  "description": "Default patterns to exclude from snapshots",
+  "patterns": [
+    ".git",
+    ".gitignore",
+    "gradle",
+    "gradlew",
+    "gradlew.*",
+    "node_modules",
+    "vendor",
+    ".snapshots",
+    ".idea",
+    ".vscode",
+    "*.log",
+    "*.tmp",
+    "target",
+    "dist",
+    "build",
+    ".DS_Store",
+    "*.bak",
+    "*.swp",
+    "*.swo",
+    "*.lock",
+    "*.iml",
+    "coverage",
+    "*.min.js",
+    "*.min.css",
+    "netlify.toml",
+    "package-lock.json",
+    "__pycache__",
+    "LICENSE"
+  ]
+}

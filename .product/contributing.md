@@ -124,10 +124,6 @@ If you need help with anything:
 
 Please note that this project is released with a Contributor Code of Conduct. By participating in this project you agree to abide by its terms.
 
-## License
-
-By contributing to Snapshots for AI, you agree that your contributions will be licensed under the same terms as the original project.
-
 ## Thank You
 
 Your contributions to Snapshots for AI are greatly appreciated. Thank you for helping make this project better for everyone!
